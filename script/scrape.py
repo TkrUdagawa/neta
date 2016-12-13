@@ -6,21 +6,29 @@ import json
 def scrape(contents):
     soup = BeautifulSoup(contents.read())
     title = get_title(soup)
-    img_source, text = get_content(soup)
-    return title, text, img_source
+    try:
+        img_source, text = get_content(soup)
+        return title, text, img_source
+    except UnboundLocalError:
+        raise
+
 
 def get_content(soup):
-    e = soup.find("div", class_="entry")
-    l = e.find_all("div", class_="separator")
-    texts = []
-    for s in l:
-        if not s.a is None :
-            if not s.a.img is None:
-                img_source = s.a.img["src"].strip()
-        else:
-            text = s.text.strip()
-            texts.append(text)
-    return img_source, "".join(texts)
+    try:
+        e = soup.find("div", class_="entry")
+        l = e.find_all("div", class_="separator")
+        texts = []
+        for s in l:
+            if not s.a is None :
+                if not s.a.img is None:
+                    img_source = s.a.img["src"].strip()
+            else:
+                text = s.text.strip()
+                texts.append(text)
+        return img_source, "".join(texts)
+    except UnboundLocalError:
+        raise
+        
 
 def get_title(soup):
     return soup.find("div", class_="title").text.strip()
@@ -63,38 +71,58 @@ def write_data(title, text, img_source, year, month, name):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("-u", "--url", action="store_false",
-                        default=True,
-                        help="ダウンロード対象のURLを取得しない場合、このオプションを指定する")
     parser.add_argument("-f", "--input", action="store",
-                        default = "urls.txt",
+                        default = None,
                         help="入力urls")
+    parser.add_argument("-o", "--oks", action="store",
+                        default=None,
+                        help="skipするURLのファイルを与える")
     args = parser.parse_args()
-    if args.url:
-        print("getting urls from website")
-        urls = []
-        request = "http://www.irasutoya.com/2012/02"
-        with open("urls.txt", "w") as w:
-            get_urls(urls, request, w)
-    else:
+    if args.input:
         print("getting urls from local file")
         with open(args.input) as f:
             urls = f.readlines()
-    with open("ng_urls.txt", "w") as f:
+    else:
+        print("getting urls from website")
+        urls = []
+        request = "http://www.irasutoya.com/2012/02"
+        with open("urls.txt", "a") as w:
+            get_urls(urls, request, w)
+
+    oks_r = set()
+    if args.oks:
+        with open(args.oks) as oks:
+            for line in oks:
+                oks_r.add(line.strip())
+
+    with open("ng_urls.txt", "a") as ng, open("ok_urls.txt", "a") as ok_w:
         for url in urls:
-        
+            url = url.strip()
             if not "blog-post_" in url:
                 print("skip: {}".format(url))
                 continue
-            print("request: {}".format(url))
             try:
-                content = urllib.request.urlopen(url)
+                if not url in oks_r:
+                    print("request: {}".format(url))
+                    content = urllib.request.urlopen(url)
+
+                else:
+                    print("url({}) is in ok_url".format(url))
+                    continue
+
             except ConnectionResetError:
-                f.write("{}\n".format(url))
+                ng.write("{}\n".format(url))
                 print("skip: {}".format(url))
                 continue
             print("scrape: {}".format(url))
-            title, text, img_source = scrape(content)
+
+            try:
+                title, text, img_source = scrape(content)
+            except UnboundLocalError:
+                print("ng scraping {}".format(url))
+                ng.write("{}\n".format(url))
+                continue
+
             t = url.split("/")
             y = t[3]
             m = t[4]
@@ -109,6 +137,7 @@ if __name__ == "__main__":
             except FileExistsError:
                 pass
             write_data(title, text, img_source, y, m, u)
+            ok_w.write("{}\n".format(url))
         print("complete!")
                 
 
